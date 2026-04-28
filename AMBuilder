@@ -1,0 +1,45 @@
+# vim: set sts=2 ts=8 sw=2 tw=99 et ft=python:
+import os, sys
+
+projectName = 'voicecontrol'
+
+# smsdk_ext.cpp will be automatically added later.
+sourceFiles = [
+  'voicecontrol_extension.cpp',
+  'voicecontrol_processor.cpp',
+  'CDetour/detours.cpp',
+  'asm/asm.c'
+]
+
+sourceFilesX64 = [
+  'voicecontrol_extension.cpp',
+  'voicecontrol_processor.cpp',
+  os.path.join(Extension.detour_public_root, 'CDetour', 'detours.cpp'),
+  os.path.join(Extension.detour_public_root, 'asm', 'asm.c'),
+  os.path.join(Extension.libudis86_root, 'udis86.c'),
+  os.path.join(Extension.libudis86_root, 'decode.c'),
+  os.path.join(Extension.libudis86_root, 'itab.c'),
+  os.path.join(Extension.libudis86_root, 'syn.c')
+]
+
+project = Extension.HL2Project(builder, projectName + '.ext')
+project.compiler.defines += ['VOICECONTROL_BUILD']
+
+if os.path.isfile(os.path.join(builder.currentSourcePath, 'sdk', 'smsdk_ext.cpp')):
+  project.sources += [os.path.join('sdk', 'smsdk_ext.cpp')]
+else:
+  project.sources += [os.path.join(Extension.sm_root, 'public', 'smsdk_ext.cpp')]
+
+if Extension.arch == 'x64':
+  project.sources += sourceFilesX64
+else:
+  project.sources += sourceFiles
+
+for sdk_name in Extension.sdks:
+  if sdk_name in ['sdk2013'] and builder.target_platform == 'linux':
+    project.sources += ['libc_compat.cpp']
+
+  sdk = Extension.sdks[sdk_name]
+  binary = Extension.HL2Config(project, projectName + '.ext.' + sdk.ext, sdk)
+
+Extension.extensions = builder.Add(project)

@@ -1,0 +1,21 @@
+services:
+  extension-build:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: extension-build
+    volumes:
+      - .:/extension
+      - ..:/workspace
+    working_dir: /extension
+    entrypoint: ["/bin/bash", "/extension/scripts/build.sh"]
+  extension-build-x64:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: extension-build
+    volumes:
+      - .:/extension
+      - ..:/workspace
+    working_dir: /extension
+    entrypoint: ["/bin/bash", "/extension/scripts/build_x64.sh"]

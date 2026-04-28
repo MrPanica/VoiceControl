@@ -1,0 +1,9 @@
+/.ambuild2/
+/build/
+/build-x64/
+
+*.o
+*.obj
+*.pdb
+*.ilk
+
