@@ -202,7 +202,7 @@ Dead players, observers, SourceTV, and Replay are not treated as normal spatial 
 
 ```cfg
 vc_proximity_enabled 1
-vc_proximity_max_distance 100000
+vc_proximity_max_distance 1200
 vc_debug_recipients 1
 vc_send_via_netchannel 1
 ```
