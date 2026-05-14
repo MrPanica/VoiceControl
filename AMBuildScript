@@ -215,6 +215,8 @@ class ExtensionConfig(object):
       '-Wno-unused',
       '-Wno-switch',
       '-Wno-array-bounds',
+      '-Wno-unknown-pragmas',
+      '-Wno-dangling-else',
       '-msse',
       '-fvisibility=hidden'
     ]
@@ -401,6 +403,10 @@ class ExtensionConfig(object):
       compiler.defines.remove('_stricmp=strcasecmp')
       compiler.defines.remove('_snprintf=snprintf')
       compiler.defines.remove('_vsnprintf=vsnprintf')
+
+    if sdk.name == 'tf2' and compiler.like('gcc'):
+      # TF2's tier0/platform.h defines _stricmp itself.
+      compiler.defines.remove('_stricmp=strcasecmp')
 
     if compiler.like('msvc'):
       compiler.defines += ['COMPILER_MSVC', 'COMPILER_MSVC32']

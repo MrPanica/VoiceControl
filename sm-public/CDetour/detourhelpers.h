@@ -49,7 +49,7 @@ struct patch_t
 		patch[0] = 0;
 		bytes = 0;
 	}
-	unsigned char patch[20];
+	unsigned char patch[64];
 	size_t bytes;
 };
 

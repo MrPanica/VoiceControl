@@ -46,7 +46,7 @@ struct patch_t
 		patch[0] = 0;
 		bytes = 0;
 	}
-	unsigned char patch[20];
+	unsigned char patch[64];
 	size_t bytes;
 };
 
@@ -77,7 +77,7 @@ inline void DoGatePatch(unsigned char *target, void *callback)
 
 inline void ApplyPatch(void *address, int offset, const patch_t *patch, patch_t *restore)
 {
-	ProtectMemory(address, 20, PAGE_EXECUTE_READWRITE);
+	ProtectMemory(address, static_cast<int>(patch->bytes), PAGE_EXECUTE_READWRITE);
 
 	unsigned char *addr = (unsigned char *)address + offset;
 	if (restore)

@@ -89,6 +89,11 @@ static bool HasMeaningfulGain(float gainDb)
 	return std::fabs(gainDb) > 0.001f;
 }
 
+static float ClampFloat(float value, float minValue, float maxValue)
+{
+	return std::max(minValue, std::min(maxValue, value));
+}
+
 static bool IsProximityEnabled()
 {
 	return vc_proximity_enabled.GetBool() && vc_proximity_max_distance.GetFloat() > 0.0f;
