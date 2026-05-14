@@ -60,7 +60,6 @@ struct RuntimePlayerSettings
 static std::array<VoiceControlProcessor, MAXPLAYERS + 1> g_processors;
 static constexpr int kMaxProximityBuckets = 32;
 static constexpr float kProximityBucketStepDb = 3.0f;
-static std::array<std::array<VoiceControlProcessor, kMaxProximityBuckets>, MAXPLAYERS + 1> g_proximityProcessors;
 static std::array<RuntimePlayerSettings, MAXPLAYERS + 1> g_playerSettings;
 
 SMEXT_LINK(&g_VoiceControl);
@@ -73,10 +72,6 @@ static void ResetClientProcessors(int client)
 	}
 
 	g_processors[client].Reset();
-	for (VoiceControlProcessor& processor : g_proximityProcessors[client])
-	{
-		processor.Reset();
-	}
 }
 
 static bool IsValidClientIndex(int client)
@@ -550,6 +545,11 @@ static std::vector<VoiceRecipient> GetVoiceRecipients(int fromClientIndex, bool 
 		}
 
 		scan.connected++;
+		if (client == fromClientIndex)
+		{
+			continue;
+		}
+
 		if (pGamePlayer->IsFakeClient())
 		{
 			if (pGamePlayer->IsSourceTV())
@@ -711,46 +711,94 @@ DETOUR_DECL_STATIC4(VC_SV_BroadcastVoiceData, void, IClient*, pClient, int, nByt
 			}
 
 			scan.bucketCount = static_cast<int>(buckets.size());
-			bool capturedDebug = false;
+			bool audioProcessingRequired = IsAudioProcessingRequired(fromClientIndex);
+			bool hasAttenuatedBuckets = false;
+			for (const auto& bucket : buckets)
+			{
+				if (bucket.first != 0)
+				{
+					hasAttenuatedBuckets = true;
+					break;
+				}
+			}
+
+			VoiceControlFrame baseFrame;
+			bool hasBaseFrame = false;
+			std::vector<uint8_t> basePacket;
+			bool hasBasePacket = false;
+
+			if (audioProcessingRequired)
+			{
+				VoiceControlSettings settings = BuildSettingsForClient(fromClientIndex);
+				if (g_processors[fromClientIndex].ProcessToFrame(data, nBytes, settings, baseFrame, debugInfoPtr) &&
+					g_processors[fromClientIndex].EncodeFrame(data, nBytes, baseFrame, basePacket))
+				{
+					hasBaseFrame = true;
+					hasBasePacket = true;
+					if (debugInfoPtr)
+					{
+						debugInfo.outputBytes = static_cast<int>(basePacket.size());
+					}
+				}
+				else
+				{
+					basePacket.assign(data, data + nBytes);
+					hasBasePacket = true;
+					if (debugInfoPtr)
+					{
+						debugInfo = VoiceControlDebugInfo();
+						debugInfo.inputBytes = nBytes;
+						debugInfo.outputBytes = nBytes;
+					}
+				}
+			}
+			else
+			{
+				basePacket.assign(data, data + nBytes);
+				hasBasePacket = true;
+				if (hasAttenuatedBuckets)
+				{
+					VoiceControlProcessor neutralProcessor;
+					VoiceControlSettings neutralSettings;
+					neutralSettings.agcEnabled = false;
+					neutralSettings.dspEnabled = false;
+					neutralSettings.highpassEnabled = false;
+					neutralSettings.noiseGateEnabled = false;
+					neutralSettings.softClipEnabled = false;
+					hasBaseFrame = neutralProcessor.ProcessToFrame(data, nBytes, neutralSettings, baseFrame, nullptr);
+				}
+
+				if (debugInfoPtr)
+				{
+					debugInfo.inputBytes = nBytes;
+					debugInfo.outputBytes = nBytes;
+				}
+			}
+
 			for (const auto& bucket : buckets)
 			{
 				int bucketIndex = bucket.first;
 				float bucketGainDb = bucket.second.empty() ? 0.0f : bucket.second.front()->gainDb;
 				std::vector<uint8_t> bucketData;
-				VoiceControlDebugInfo bucketDebug;
-				VoiceControlDebugInfo* bucketDebugPtr = debugInfoPtr ? &bucketDebug : nullptr;
-
-				if (bucketIndex == 0 && !IsAudioProcessingRequired(fromClientIndex))
+				if (bucketIndex == 0)
 				{
-					bucketData.assign(data, data + nBytes);
-					if (bucketDebugPtr)
-					{
-						bucketDebug.inputBytes = nBytes;
-						bucketDebug.outputBytes = nBytes;
-					}
+					bucketData = hasBasePacket ? basePacket : std::vector<uint8_t>(data, data + nBytes);
 				}
 				else
 				{
-					VoiceControlSettings settings = BuildSettingsForClient(fromClientIndex);
-					settings.duckGainDb += bucketGainDb;
-					if (!g_proximityProcessors[fromClientIndex][bucketIndex].Process(data, nBytes, settings, bucketData, bucketDebugPtr))
+					if (hasBaseFrame)
 					{
-						bucketData.assign(data, data + nBytes);
-						if (bucketDebugPtr)
+						VoiceControlFrame bucketFrame = baseFrame;
+						VoiceControlProcessor::ApplyGainToFrame(bucketFrame, bucketGainDb);
+						if (!VoiceControlProcessor::EncodeFrameStateless(data, nBytes, bucketFrame, bucketData))
 						{
-							bucketDebug = VoiceControlDebugInfo();
-							bucketDebug.inputBytes = nBytes;
-							bucketDebug.outputBytes = nBytes;
-							bucketDebug.duckGainDb = settings.duckGainDb;
-							bucketDebug.finalGainDb = settings.duckGainDb;
+							bucketData = hasBasePacket ? basePacket : std::vector<uint8_t>(data, data + nBytes);
 						}
 					}
-				}
-
-				if (debugInfoPtr && (!capturedDebug || bucketIndex == 0))
-				{
-					debugInfo = bucketDebug;
-					capturedDebug = true;
+					else
+					{
+						bucketData = hasBasePacket ? basePacket : std::vector<uint8_t>(data, data + nBytes);
+					}
 				}
 
 				for (const VoiceRecipient* recipient : bucket.second)

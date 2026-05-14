@@ -43,10 +43,29 @@ void VoiceControlProcessor::Reset()
 
 bool VoiceControlProcessor::Process(const uint8_t* data, int nBytes, const VoiceControlSettings& settings, std::vector<uint8_t>& output, VoiceControlDebugInfo* debugInfo)
 {
+	VoiceControlFrame frame;
+	if (!ProcessToFrame(data, nBytes, settings, frame, debugInfo))
+	{
+		return false;
+	}
+
+	bool encoded = EncodeFrame(data, nBytes, frame, output);
+	if (encoded && debugInfo)
+	{
+		debugInfo->outputBytes = static_cast<int>(output.size());
+	}
+
+	return encoded;
+}
+
+bool VoiceControlProcessor::ProcessToFrame(const uint8_t* data, int nBytes, const VoiceControlSettings& settings, VoiceControlFrame& frame, VoiceControlDebugInfo* debugInfo)
+{
 	if (!data || nBytes <= 0 || nBytes > MAX_PACKET_SIZE)
 	{
 		return false;
 	}
+
+	frame = VoiceControlFrame();
 
 	if (debugInfo)
 	{
@@ -138,19 +157,54 @@ bool VoiceControlProcessor::Process(const uint8_t* data, int nBytes, const Voice
 		debugInfo->clipCount = clipCount;
 	}
 
+	CopyDecodedChunksToFrame(decodedChunks, sampleRate, frame);
+	return true;
+}
+
+bool VoiceControlProcessor::EncodeFrame(const uint8_t* original, int originalBytes, const VoiceControlFrame& frame, std::vector<uint8_t>& output)
+{
+	if (frame.sampleRate <= 0 || !EnsureCodec(frame.sampleRate))
+	{
+		return false;
+	}
+
+	std::vector<DecodedChunk> decodedChunks;
+	if (!CopyFrameToDecodedChunks(frame, decodedChunks))
+	{
+		return false;
+	}
+
 	std::vector<EncodedChunk> processedChunks;
 	if (!EncodeChunks(decodedChunks, processedChunks))
 	{
 		return false;
 	}
 
-	bool rebuilt = RebuildSteamVoicePacket(data, nBytes, processedChunks, output);
-	if (rebuilt && debugInfo)
+	return RebuildSteamVoicePacket(original, originalBytes, processedChunks, output);
+}
+
+void VoiceControlProcessor::ApplyGainToFrame(VoiceControlFrame& frame, float gainDb)
+{
+	if (std::fabs(gainDb) <= 0.001f)
 	{
-		debugInfo->outputBytes = static_cast<int>(output.size());
+		return;
 	}
 
-	return rebuilt;
+	float gain = DbToGain(gainDb);
+	for (VoiceControlFrameChunk& chunk : frame.chunks)
+	{
+		for (int16_t& sample : chunk.data)
+		{
+			float value = static_cast<float>(sample) * gain;
+			sample = static_cast<int16_t>(ClampFloat(value, -32768.0f, 32767.0f));
+		}
+	}
+}
+
+bool VoiceControlProcessor::EncodeFrameStateless(const uint8_t* original, int originalBytes, const VoiceControlFrame& frame, std::vector<uint8_t>& output)
+{
+	VoiceControlProcessor processor;
+	return processor.EncodeFrame(original, originalBytes, frame, output);
 }
 
 bool VoiceControlProcessor::ParseSteamVoicePacket(const uint8_t* data, int nBytes, opus_int32& sampleRate, std::vector<EncodedChunk>& chunks)
@@ -403,6 +457,45 @@ bool VoiceControlProcessor::RebuildSteamVoicePacket(const uint8_t* original, int
 
 	output.resize(encPos);
 	return true;
+}
+
+void VoiceControlProcessor::CopyDecodedChunksToFrame(const std::vector<DecodedChunk>& decodedChunks, opus_int32 sampleRate, VoiceControlFrame& frame)
+{
+	frame = VoiceControlFrame();
+	frame.sampleRate = sampleRate;
+	frame.chunks.reserve(decodedChunks.size());
+	for (const DecodedChunk& decoded : decodedChunks)
+	{
+		VoiceControlFrameChunk chunk;
+		chunk.index = decoded.index;
+		chunk.data = decoded.data;
+		frame.chunks.push_back(std::move(chunk));
+	}
+}
+
+bool VoiceControlProcessor::CopyFrameToDecodedChunks(const VoiceControlFrame& frame, std::vector<DecodedChunk>& decodedChunks)
+{
+	if (frame.sampleRate <= 0 || frame.chunks.empty())
+	{
+		return false;
+	}
+
+	decodedChunks.clear();
+	decodedChunks.reserve(frame.chunks.size());
+	for (const VoiceControlFrameChunk& chunk : frame.chunks)
+	{
+		if (chunk.data.empty())
+		{
+			return false;
+		}
+
+		DecodedChunk decoded;
+		decoded.index = chunk.index;
+		decoded.data = chunk.data;
+		decodedChunks.push_back(std::move(decoded));
+	}
+
+	return !decodedChunks.empty();
 }
 
 float VoiceControlProcessor::CalculateRms(const std::vector<DecodedChunk>& chunks)

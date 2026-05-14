@@ -56,6 +56,18 @@ struct VoiceControlDebugInfo
 	int preset = 0;
 };
 
+struct VoiceControlFrameChunk
+{
+	int16_t index = 0;
+	std::vector<int16_t> data;
+};
+
+struct VoiceControlFrame
+{
+	opus_int32 sampleRate = 0;
+	std::vector<VoiceControlFrameChunk> chunks;
+};
+
 enum class VoiceEffectType
 {
 	HighPass,
@@ -79,7 +91,12 @@ public:
 	~VoiceControlProcessor();
 
 	bool Process(const uint8_t* data, int nBytes, const VoiceControlSettings& settings, std::vector<uint8_t>& output, VoiceControlDebugInfo* debugInfo = nullptr);
+	bool ProcessToFrame(const uint8_t* data, int nBytes, const VoiceControlSettings& settings, VoiceControlFrame& frame, VoiceControlDebugInfo* debugInfo = nullptr);
+	bool EncodeFrame(const uint8_t* original, int originalBytes, const VoiceControlFrame& frame, std::vector<uint8_t>& output);
 	void Reset();
+
+	static void ApplyGainToFrame(VoiceControlFrame& frame, float gainDb);
+	static bool EncodeFrameStateless(const uint8_t* original, int originalBytes, const VoiceControlFrame& frame, std::vector<uint8_t>& output);
 
 private:
 	struct EncodedChunk
@@ -99,6 +116,8 @@ private:
 	bool DecodeChunks(const std::vector<EncodedChunk>& encodedChunks, std::vector<DecodedChunk>& decodedChunks);
 	bool EncodeChunks(const std::vector<DecodedChunk>& decodedChunks, std::vector<EncodedChunk>& encodedChunks);
 	bool RebuildSteamVoicePacket(const uint8_t* original, int originalBytes, const std::vector<EncodedChunk>& chunks, std::vector<uint8_t>& output);
+	static void CopyDecodedChunksToFrame(const std::vector<DecodedChunk>& decodedChunks, opus_int32 sampleRate, VoiceControlFrame& frame);
+	static bool CopyFrameToDecodedChunks(const VoiceControlFrame& frame, std::vector<DecodedChunk>& decodedChunks);
 
 	float CalculateRms(const std::vector<DecodedChunk>& chunks);
 	float CalculatePeak(const std::vector<DecodedChunk>& chunks);

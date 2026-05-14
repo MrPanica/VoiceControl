@@ -223,7 +223,8 @@ class ExtensionConfig(object):
     if self.arch == 'x86':
       cxx.cflags += ['-m32']
       cxx.linkflags += ['-m32']
-    else:
+
+    if builder.target_platform == 'linux':
       cxx.cflags += ['-fPIC']
       cxx.cxxflags += ['-fPIC']
     cxx.cxxflags += [
